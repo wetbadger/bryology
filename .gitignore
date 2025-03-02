@@ -1,6 +1,7 @@
 api.key
 venv/
 moss_species_data.json
+moss_taxonomic_hierarchy.json
 moss_species.csv
 species*
 Taxon.tsv

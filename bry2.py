@@ -6,6 +6,36 @@ TAXON_IDS_FILE = "moss_taxonomy_ids.txt"
 
 processed_ids = None
 
+def build_taxonomic_hierarchy(species_data):
+    """
+    Builds a hierarchical data structure for taxonomic relationships.
+    """
+    taxonomic_hierarchy = {}
+
+    for species in species_data:
+        class_name = species.get("class", "Unknown")
+        order_name = species.get("order", "Unknown")
+        family_name = species.get("family", "Unknown")
+        genus_name = species.get("genus", "Unknown")
+
+        # Add class if not already present
+        if class_name not in taxonomic_hierarchy:
+            taxonomic_hierarchy[class_name] = {}
+
+        # Add order if not already present
+        if order_name not in taxonomic_hierarchy[class_name]:
+            taxonomic_hierarchy[class_name][order_name] = {}
+
+        # Add family if not already present
+        if family_name not in taxonomic_hierarchy[class_name][order_name]:
+            taxonomic_hierarchy[class_name][order_name][family_name] = {}
+
+        # Add genus if not already present
+        if genus_name not in taxonomic_hierarchy[class_name][order_name][family_name]:
+            taxonomic_hierarchy[class_name][order_name][family_name][genus_name] = {}
+
+    return taxonomic_hierarchy
+
 def read_taxonomy_ids(filename):
     """
     Reads taxonomy IDs from a text file.
@@ -19,6 +49,7 @@ def get_species_data(taxon_id):
     Fetches species data from the GBIF API.
     If the species is a synonym, attempts to find the accepted name.
     Checks if the acceptedKey is already in the processed_ids list to avoid loops.
+    Returns species data including full taxonomic hierarchy.
     """
     global processed_ids
     if processed_ids is None:
@@ -48,11 +79,14 @@ def get_species_data(taxon_id):
                 print(f"Skipping synonym without an accepted name: {data.get('scientificName', 'Unknown')}")
                 return None
         
-        # If the species is accepted, return its data
+        # If the species is accepted, return its data including taxonomic hierarchy
         return {
             "taxonID": taxon_id,
             "species": data.get("species", "Unknown"),
             "genus": data.get("genus", "Unknown"),
+            "family": data.get("family", "Unknown"),
+            "order": data.get("order", "Unknown"),
+            "class": data.get("class", "Unknown"),
             "scientificName": data.get("scientificName", "Unknown"),
             "vernacularName": data.get("vernacularName", "Unknown")
         }
@@ -163,6 +197,8 @@ def main():
 
     # Fetch data for each species
     species_data = []
+    taxonomic_hierarchy = {}
+
     for taxon_id in taxonomy_ids:
         # Get species data
         species_info = get_species_data(taxon_id)
@@ -191,8 +227,24 @@ def main():
         # Add to the list
         species_data.append(species_info)
 
+        # Build the taxonomic hierarchy
+        class_name = species_info.get("class", "Unknown")
+        order_name = species_info.get("order", "Unknown")
+        family_name = species_info.get("family", "Unknown")
+        genus_name = species_info.get("genus", "Unknown")
+
+        if class_name not in taxonomic_hierarchy:
+            taxonomic_hierarchy[class_name] = {}
+        if order_name not in taxonomic_hierarchy[class_name]:
+            taxonomic_hierarchy[class_name][order_name] = {}
+        if family_name not in taxonomic_hierarchy[class_name][order_name]:
+            taxonomic_hierarchy[class_name][order_name][family_name] = {}
+        if genus_name not in taxonomic_hierarchy[class_name][order_name][family_name]:
+            taxonomic_hierarchy[class_name][order_name][family_name][genus_name] = {}
+
     # Write the data to a JSON file
-    write_to_json(species_data)
+    write_to_json(species_data, filename="moss_species_data.json")
+    write_to_json(taxonomic_hierarchy, filename="moss_taxonomic_hierarchy.json")
 
 if __name__ == "__main__":
     main()

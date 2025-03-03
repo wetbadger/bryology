@@ -193,13 +193,16 @@ def main():
         return
 
     # Limit to the first 20 species
-    taxonomy_ids = taxonomy_ids[:100]
+    taxonomy_ids = taxonomy_ids[:500]
 
     # Fetch data for each species
     species_data = []
     taxonomic_hierarchy = {}
 
+    i = 0
     for taxon_id in taxonomy_ids:
+        # Increment counter
+        i+=1
         # Get species data
         species_info = get_species_data(taxon_id)
         if not species_info:
@@ -224,23 +227,33 @@ def main():
         habitats = extract_habitats(occurrences)
         species_info["habitats"] = habitats
 
-        # Add to the list
-        species_data.append(species_info)
+        if species_info["species"] != "Unknown" and species_info["family"] != "Unknown" and species_info["order"] != "Unknown" and species_info["family"] != "Unknown":
+            # Add to the list
+            species_data.append(species_info)
 
-        # Build the taxonomic hierarchy
-        class_name = species_info.get("class", "Unknown")
-        order_name = species_info.get("order", "Unknown")
-        family_name = species_info.get("family", "Unknown")
-        genus_name = species_info.get("genus", "Unknown")
+            # Build the taxonomic hierarchy
+            class_name = species_info.get("class", "Unknown")
+            order_name = species_info.get("order", "Unknown")
+            family_name = species_info.get("family", "Unknown")
+            genus_name = species_info.get("genus", "Unknown")
 
-        if class_name not in taxonomic_hierarchy:
-            taxonomic_hierarchy[class_name] = {}
-        if order_name not in taxonomic_hierarchy[class_name]:
-            taxonomic_hierarchy[class_name][order_name] = {}
-        if family_name not in taxonomic_hierarchy[class_name][order_name]:
-            taxonomic_hierarchy[class_name][order_name][family_name] = {}
-        if genus_name not in taxonomic_hierarchy[class_name][order_name][family_name]:
-            taxonomic_hierarchy[class_name][order_name][family_name][genus_name] = {}
+            if class_name not in taxonomic_hierarchy:
+                taxonomic_hierarchy[class_name] = {}
+            if order_name not in taxonomic_hierarchy[class_name]:
+                taxonomic_hierarchy[class_name][order_name] = {}
+            if family_name not in taxonomic_hierarchy[class_name][order_name]:
+                taxonomic_hierarchy[class_name][order_name][family_name] = {}
+            if genus_name not in taxonomic_hierarchy[class_name][order_name][family_name]:
+                taxonomic_hierarchy[class_name][order_name][family_name][genus_name] = {}
+
+            del species_info["class"]
+            del species_info["order"]
+            del species_info["family"]
+
+            if i % 100 == 0:
+                write_to_json(species_data, filename="moss_species_data.json")
+                write_to_json(taxonomic_hierarchy, filename="moss_taxonomic_hierarchy.json")
+        print("Progress = "+str(i/len(taxonomy_ids)))
 
     # Write the data to a JSON file
     write_to_json(species_data, filename="moss_species_data.json")

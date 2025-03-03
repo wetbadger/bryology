@@ -193,13 +193,14 @@ def main():
         return
 
     # Limit to the first 20 species
-    taxonomy_ids = taxonomy_ids[:500]
+    taxonomy_ids = taxonomy_ids[:1000]
 
     # Fetch data for each species
     species_data = []
     taxonomic_hierarchy = {}
 
     i = 0
+    j = 0
     for taxon_id in taxonomy_ids:
         # Increment counter
         i+=1
@@ -250,7 +251,8 @@ def main():
             del species_info["order"]
             del species_info["family"]
 
-            if i % 100 == 0:
+            j+=1
+            if j % 50 == 0:
                 write_to_json(species_data, filename="moss_species_data.json")
                 write_to_json(taxonomic_hierarchy, filename="moss_taxonomic_hierarchy.json")
         print("Progress = "+str(i/len(taxonomy_ids)))

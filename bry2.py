@@ -1,5 +1,7 @@
 import requests
 import json
+import os
+import re
 
 # Path to the file containing taxonomy IDs
 TAXON_IDS_FILE = "moss_taxonomy_ids.txt"
@@ -44,7 +46,7 @@ def read_taxonomy_ids(filename):
         taxonomy_ids = [line.strip() for line in f.readlines()]
     return taxonomy_ids
 
-def get_species_data(taxon_id):
+def get_species_data(taxon_id, synonym=''):
     """
     Fetches species data from the GBIF API.
     If the species is a synonym, attempts to find the accepted name.
@@ -52,6 +54,7 @@ def get_species_data(taxon_id):
     Returns species data including full taxonomic hierarchy.
     """
     global processed_ids
+
     if processed_ids is None:
         processed_ids = set()  # Initialize a set to track processed IDs
 
@@ -74,21 +77,34 @@ def get_species_data(taxon_id):
             accepted_key = data.get("acceptedKey")
             if accepted_key:
                 print(f"Species {data.get('scientificName', 'Unknown')} is a synonym. Fetching accepted name...")
-                return get_species_data(accepted_key)  # Recursively fetch the accepted name
+                return get_species_data(accepted_key, synonym={data.get('scientificName', '')})  # Recursively fetch the accepted name
             else:
                 print(f"Skipping synonym without an accepted name: {data.get('scientificName', 'Unknown')}")
                 return None
         
-        # If the species is accepted, return its data including taxonomic hierarchy
+        published = data.get("publishedIn", "Unknown")
+        match = re.search(r"\b\d{4}\b$", published) # check for date at end of publication
+        discovered = ""
+        if match:
+            discovered = match.group(0)
+        if not discovered:
+            discovered = re.findall(r"\((\d+)\)", published)
+            if len(discovered) > 0:
+                discovered = discovered[0]
+            else:
+                discovered = "Unknown"
+        
         return {
-            "taxonID": taxon_id,
+            "taxonID": str(taxon_id),
             "species": data.get("species", "Unknown"),
             "genus": data.get("genus", "Unknown"),
             "family": data.get("family", "Unknown"),
             "order": data.get("order", "Unknown"),
             "class": data.get("class", "Unknown"),
             "scientificName": data.get("scientificName", "Unknown"),
-            "vernacularName": data.get("vernacularName", "Unknown")
+            "vernacularName": data.get("vernacularName", "Unknown"),
+            "publishedIn": published,
+            "discovered": discovered
         }
     else:
         print(f"Failed to fetch data for species ID {taxon_id}")
@@ -136,7 +152,7 @@ def write_to_json(data, filename="moss_species_data.json"):
 import os
 import requests
 
-def get_iucn_conservation_url(scientific_name):
+def get_iucn_data(scientific_name):
     """
     Fetches the URL to the conservation assessment for a species from the IUCN Red List API v4.
     
@@ -171,18 +187,66 @@ def get_iucn_conservation_url(scientific_name):
         # Parse the response JSON
         data = response.json()
         
+        assessment_url = ""
+        assessment_year = "Unknown"
+        assessment_pe = False
+        assessment_peiw = False
         # Check if the species data is available
-        if "assessments" in data and data["assessments"]:
+        if data["assessments"]:
+            assessments = data.get("assessments", [])
+            latest_assessment = next((a for a in assessments if a.get("latest")), None)
             # Get the assessment URL
-            assessment_url = data["assessments"][0]["url"]
-            return assessment_url
+            if latest_assessment:
+                assessment_url = latest_assessment["url"]
+                assessment_year = latest_assessment["year_published"]
+                assessment_pe = latest_assessment["possibly_extinct"]
+                assessment_peiw = latest_assessment["possibly_extinct_in_the_wild"]
         else:
             print(f"No assessments found for {scientific_name}")
             return None
+        
+        authority = "Unknown"
+        if "taxon" in data and "authority" in data["taxon"] and data["taxon"]["authority"]:
+            authority = data["taxon"]["authority"]
+        else:
+            print(f"No authority found for {scientific_name}")
+
+        main_common_name = "Unknown"
+        if "taxon" in data and "common_names" in data["taxon"] and data["taxon"]["common_names"]:
+            common_names = data["taxon"].get("common_names", [])
+            main_common_name = next((a["name"] for a in common_names if a.get("main")), "Unknown")
+        else:
+            print(f"No common names found for {scientific_name}")
+
+        """
+        synonyms = []
+        if "taxon" in data and "synonyms" in data["taxon"] and data["taxon"]["synonyms"]:
+            for s in data["taxon"]["synonyms"]:
+                synonyms.append(s["name"])
+        """
+
+        return  {
+                    "assessment_url": assessment_url,
+                    "assessment_year": assessment_year,
+                    "possibly_extinct": assessment_pe,
+                    "possibly_extinct_in_the_wild": assessment_peiw,
+                    "authority":authority,
+                    "vernacularName": main_common_name
+                }
     
     except requests.exceptions.RequestException as e:
         print(f"Error fetching IUCN conservation URL for {scientific_name}: {e}")
         return None
+    
+# Function to safely load JSON data
+def load_json(file_path):
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, 'r') as file:
+                return json.load(file)
+        except json.JSONDecodeError:
+            print(f"Error decoding JSON from {file_path}")
+    return None
 
 def main():
     # Read taxonomy IDs from the file
@@ -193,11 +257,15 @@ def main():
         return
 
     # Limit to the first 20 species
-    taxonomy_ids = taxonomy_ids[:1000]
+    taxonomy_ids = taxonomy_ids[:300]
 
     # Fetch data for each species
     species_data = []
     taxonomic_hierarchy = {}
+    # Load species data
+    species_data = load_json('moss_species_data.json') or []
+    # Load taxonomic hierarchy
+    taxonomic_hierarchy = load_json('moss_taxonomic_hierarchy.json') or {}
 
     i = 0
     j = 0
@@ -205,7 +273,7 @@ def main():
         # Increment counter
         i+=1
         # Get species data
-        species_info = get_species_data(taxon_id)
+        species_info = get_species_data(taxon_id, species_data)
         if not species_info:
             continue
 
@@ -217,8 +285,11 @@ def main():
         # Get IUCN conservation URL
         conservation_url = None
         if len(species_info["scientificName"].split()) > 2:
-            conservation_url = get_iucn_conservation_url(species_info["scientificName"])
-        species_info["conservation_url"] = conservation_url
+            conservation_data = get_iucn_data(species_info["scientificName"])
+        if "vernacularName" not in species_info and conservation_data:
+            del conservation_data["vernacularName"]
+        if conservation_data:
+            species_info.update(conservation_data)
 
         # Get occurrence data
         occurrences = get_occurrence_data(taxon_id)
@@ -255,7 +326,7 @@ def main():
             if j % 50 == 0:
                 write_to_json(species_data, filename="moss_species_data.json")
                 write_to_json(taxonomic_hierarchy, filename="moss_taxonomic_hierarchy.json")
-        print("Progress = "+str(i/len(taxonomy_ids)))
+        print("Progress: %.2f" % (i/len(taxonomy_ids)))
 
     # Write the data to a JSON file
     write_to_json(species_data, filename="moss_species_data.json")
